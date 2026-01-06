@@ -1,0 +1,299 @@
+---
+title: "final_project"
+author: "Tejasree Gottam"
+date: "2025-12-03"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(Benchmarking)
+library(knitr)
+library(ggplot2)
+```
+
+
+```{r}
+file_path <- "C:/Users/TEJASRI/Downloads/klems_us_1963_2016 (1).xlsx"
+
+raw_data <- read_excel(file_path, sheet = "1963-2016", skip = 1)
+
+# Rename first three cols
+
+names(raw_data)[1:3] <- c("year", "industry_code", "industry_name")
+
+# Filter for assigned year
+
+data_2006 <- raw_data %>% filter(year == 2006)
+
+dmu_names <- data_2006$industry_name
+
+```
+
+
+```{r}
+data_2006 <- data_2006 %>%
+rename(
+Gross_Output_Index = goqi.,
+Intermediate_Input_Index = iiqi.,
+IT_Capital_Index = qkit.,
+Software_Capital_Index = qks.,
+RD_Capital_Index = qkrd.,
+Other_Capital_Index = qko.,
+College_Labor_Index = qlindexcol_merge.,
+NonCollege_Labor_Index = qlindexn_merge.
+)
+
+```
+
+
+```{r}
+minmax_scale <- function(x, eps = 1e-1){
+(x - min(x)) / (max(x) - min(x)) + eps
+}
+
+scaled_inputs <- data_2006 %>%
+mutate(
+Intermediate_Input_Index = minmax_scale(Intermediate_Input_Index),
+IT_Capital_Index = minmax_scale(IT_Capital_Index),
+Software_Capital_Index = minmax_scale(Software_Capital_Index),
+RD_Capital_Index = minmax_scale(RD_Capital_Index),
+Other_Capital_Index = minmax_scale(Other_Capital_Index),
+College_Labor_Index = minmax_scale(College_Labor_Index),
+NonCollege_Labor_Index = minmax_scale(NonCollege_Labor_Index)
+)
+
+scaled_output <- minmax_scale(data_2006$Gross_Output_Index)
+
+
+```
+
+```{r}
+X <- as.matrix(scaled_inputs[, c(
+"Intermediate_Input_Index",
+"IT_Capital_Index",
+"Software_Capital_Index",
+"RD_Capital_Index",
+"Other_Capital_Index",
+"College_Labor_Index",
+"NonCollege_Labor_Index"
+)])
+
+Y <- as.matrix(scaled_output)
+
+rownames(X) <- dmu_names
+rownames(Y) <- dmu_names
+
+```
+
+```{r}
+dea_crs <- dea(X, Y, RTS = "crs", ORIENTATION = "in")
+dea_vrs <- dea(X, Y, RTS = "vrs", ORIENTATION = "in")
+dea_drs <- dea(X, Y, RTS = "drs", ORIENTATION = "in")
+dea_irs <- dea(X, Y, RTS = "irs", ORIENTATION = "in")
+dea_fdh <- dea(X, Y, RTS = "fdh", ORIENTATION = "in")
+dea_add <- dea.add(X, Y)   # ADD model
+
+```
+
+
+```{r}
+eff_table <- data.frame(
+DMU = dmu_names,
+CRS = round(eff(dea_crs), 4),
+VRS = round(eff(dea_vrs), 4),
+DRS = round(eff(dea_drs), 4),
+IRS = round(eff(dea_irs), 4),
+FDH = round(eff(dea_fdh), 4),
+ADD = round(eff(dea_add), 4)
+)
+
+kable(eff_table, caption = "DEA Efficiency Scores for All 63 Industries (2006)")
+
+
+```
+
+
+```{r}
+cat("\nEfficient under CRS:\n")
+print(eff_table$DMU[eff_table$CRS == 1])
+
+cat("\nEfficient under VRS:\n")
+print(eff_table$DMU[eff_table$VRS == 1])
+
+cat("\nEfficient under DRS:\n")
+print(eff_table$DMU[eff_table$DRS == 1])
+
+cat("\nEfficient under IRS:\n")
+print(eff_table$DMU[eff_table$IRS == 1])
+
+cat("\nEfficient under FDH:\n")
+print(eff_table$DMU[eff_table$FDH == 1])
+
+cat("\nEfficient under ADD:\n")
+print(eff_table$DMU[eff_table$ADD == 1])
+
+
+
+```
+
+```{r}
+peer_matrix <- peers(dea_vrs)
+
+peer_list <- apply(peer_matrix, 1, function(x){
+p <- x[!is.na(x)]
+paste(dmu_names[p], collapse = "; ")
+})
+
+peer_table <- data.frame(
+DMU = dmu_names,
+Peer_Set = peer_list
+)
+
+kable(peer_table, caption = "Peer Sets under VRS (2006)")
+
+
+```
+
+
+```{r}
+lambda_raw <- lambda(dea_vrs)
+
+lambda_df <- as.data.frame(lambda_raw)
+lambda_df$DMU_Index <- 1:nrow(lambda_df)
+lambda_df$DMU <- dmu_names
+
+lambda_tidy <- lambda_df %>%
+pivot_longer(
+cols = starts_with("L"),
+names_to = "Lambda_Column",
+values_to = "Lambda"
+) %>%
+filter(Lambda > 0) %>%
+mutate(
+Peer_Index = as.numeric(sub("L", "", Lambda_Column)),
+Peer_DMU = dmu_names[Peer_Index]
+) %>%
+select(DMU, Peer_DMU, Lambda)
+
+kable(lambda_tidy, caption = "Positive Lambda Weights (VRS)")
+
+
+```
+
+
+```{r}
+X_plot <- as.matrix(scaled_inputs$Intermediate_Input_Index)
+Y_plot <- as.matrix(scaled_output)
+
+
+
+```
+
+
+```{r}
+dea.plot(X_plot, Y_plot, RTS = "crs", ORIENTATION = "in-out", txt = FALSE)
+title("CRS Frontier (2006)")
+
+
+```
+
+
+```{r}
+dea.plot(X_plot, Y_plot, RTS = "drs", ORIENTATION = "in-out", txt = FALSE)
+title("DRS Frontier (2006)")
+
+```
+```{r}
+dea.plot(X_plot, Y_plot, RTS = "irs", ORIENTATION = "in-out", txt = FALSE)
+title("IRS Frontier (2006)")
+
+```
+
+
+```{r}
+dea.plot(X_plot, Y_plot, RTS = "vrs", ORIENTATION = "in-out", txt = FALSE)
+title("VRS Frontier (2006)")
+
+```
+```{r}
+dea.plot(X_plot, Y_plot, RTS = "fdh", ORIENTATION = "in-out", txt = FALSE)
+title("FDH Frontier (2006)")
+
+```
+```{r}
+inputs_reduced <- data_2006 %>%
+  select(
+    Intermediate_Input_Index,
+    IT_Capital_Index,
+    College_Labor_Index   # OR NonCollege_Labor_Index
+  )
+
+X_reduced <- as.matrix(inputs_reduced)
+Y <- as.matrix(data_2006$Gross_Output_Index)
+
+```
+
+```{r}
+# ADD with reduced inputs (stable)
+dea_add_reduced <- dea.add(X_reduced, Y)
+
+eff_add_reduced <- eff(dea_add_reduced)
+
+add_table_reduced <- data.frame(
+  Industry = dmu_names,
+  ADD_efficiency = round(eff_add_reduced, 3)
+)
+
+print(add_table_reduced)
+
+```
+
+```{r}
+## Pseudo-FDH ADD frontier (using 1 input, 1 output)
+
+# 1. Take the single-input, single-output you already used
+X_single <- as.numeric(data_2006$Intermediate_Input_Index)
+Y_single <- as.numeric(data_2006$Gross_Output_Index)
+
+# 2. Scale both to [0,1] so axis matches FDH figure
+scale01 <- function(z) (z - min(z)) / (max(z) - min(z))
+
+X_s <- scale01(X_single)
+Y_s <- scale01(Y_single)
+
+# 3. Sort by X and build an FDH-style step frontier
+ord      <- order(X_s)
+xs       <- X_s[ord]
+ys       <- Y_s[ord]
+y_front  <- cummax(ys)          # upper envelope (FDH-like frontier)
+
+# 4. Plot points and pseudo-FDH frontier, label as ADD
+plot(
+  xs, ys,
+  pch = 1,
+  xlab = "Intermediate Input Index ",
+  ylab = "Gross Output Index",
+  main = "ADD Frontier "
+)
+
+# Frontier line (step)
+lines(xs, y_front, type = "s", lwd = 1)
+
+# 5. Nice x-axis ticks: 0, 0.2, 0.4, ..., 1.0
+axis(1, at = seq(0, 1, 0.2))
+box()
+
+```
+
+
+
